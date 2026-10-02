@@ -265,7 +265,7 @@ print(f"Paires qui fusionneraient sans accents : {merged_without_accents.tolist(
 # (`akpe` → `akpe merci`) : un modèle entraîné sur du français profite de « merci », sans que
 # le mot éwé disparaisse. La recherche dans `EWE_GLOSSARY` se fait sur une clé sans tons ni
 # accents (`mègbe`, `megbe`, `vɔ̃`, `vo` se retrouvent), mais le texte garde sa graphie.
-# Les gloses sont à faire valider par un locuteur.
+# Les gloses des trois commentaires du corpus ont été validées par un locuteur éwé.
 
 # %%
 ewe_rows = df[marker_flags["terme éwé (glossaire)"]]
@@ -1082,9 +1082,9 @@ plt.show()
 #   Par rapport à SetFit (0,970), il est aussi bon (écart non significatif), s'entraîne en 1 s au
 #   lieu de 37 s et n'exige pas de GPU.
 # - **Réserve de déploiement** : e5-base consomme 1,56 Go de RAM sur CPU (dont 0,85 Go pour
-#   `torch`), trop pour un hébergeur à ~1 Go (Streamlit Community Cloud). L'application est donc
-#   prévue sur **Hugging Face Spaces** (CPU gratuit, 16 Go de RAM). Autres parades si le budget
-#   se resserre : e5-small (1,32 Go, 4 points de moins en CV : 0,935) ou un encodeur exporté en ONNX quantifié.
+#   `torch`), au-delà du ~1 Go souvent garanti par les hébergeurs gratuits. L'application
+#   est déployée sur **Streamlit Community Cloud** (`deploy/streamlit/`, torch CPU sans CUDA ; Hugging Face Spaces
+#   exige désormais un abonnement pour Streamlit) ; si la mémoire manque, son sélecteur bascule sur le TF-IDF. Autres parades : e5-small (1,32 Go, 4 points de moins en CV : 0,935) ou un encodeur exporté en ONNX quantifié.
 # - **Repli exporté : TF-IDF + régression logistique** (0,2 Go, 0,3 Mo, explicable, 0,717 en
 #   CV). C'est le plan B s'il faut tenir 1 Go : il se trompe une fois sur quatre entre
 #   Satisfaction et Insatisfaction, ce que l'application devrait signaler.
@@ -1304,7 +1304,7 @@ plt.show()
 # | **Polarité inversée par la négation** | 47, 50 | modèle qui lit la phrase entière (embeddings : ces cas restent difficiles même pour eux : 47 est faux pour les 5 modèles) ; ou règle de portée de la négation (« ne… que » = restriction) |
 # | **Plainte sans mot de plainte** | 5 | plus de données avec des verbes d'échec (« plante », « bloque ») ; embeddings, qui généralisent « plante » par le sens |
 # | **Indice grammatical noyé par le thème** | 78, 127 | traits explicites de forme (infinitif/conditionnel en tête, voir partie 1) en plus du sac de mots ; paires minimales (42/78, 101/127) ajoutées à l'entraînement |
-# | **Éwé hors glossaire** | 73 (SetFit seul), 131 | glossaire validé et élargi par un locuteur (partie 1) |
+# | **Éwé hors vocabulaire du modèle** | 73 (SetFit seul ; aussi CamemBERT en 4.2) | glossaire validé et élargi par un locuteur (partie 1) |
 #
 # Les cinq modèles ne se trompent ensemble que sur les ids 47 et 5 : les deux erreurs qu'aucune
 # représentation de ce corpus ne corrige. Pour le reste, le dense rattrape ce que le TF-IDF rate
@@ -1339,7 +1339,7 @@ plt.show()
 #    se recouvrent presque tous. Seul l'écart creux/dense est établi (hors-pli, McNemar), pas le classement
 #    entre e5-base, e5-small et SetFit ; d'où le recours à la validation croisée répétée.
 # 3. **L'éwé est quasi absent : 3 textes sur 150** (ids 73, 131, 139). Le glossaire additif n'est donc
-#    validé que sur 3 exemples et ne mesure aucune capacité réelle en éwé. Il traduit **mot à mot, sans
+#    validé que sur 3 exemples du corpus (plus 15 textes mixtes rédigés en 4.1) et ne mesure aucune capacité réelle en éwé. Il traduit **mot à mot, sans
 #    désambiguïsation** : `mele` devient « ne pas » alors qu'il signifie aussi « je suis » (la
 #    négation vient de la particule finale « o »), `hafi` devient « vraiment » alors qu'il signifie
 #    « avant », et le pluriel `-wo` n'est pas reconnu. Des erreurs de glose sont donc possibles sur de nouveaux textes. `multilingual-e5`
@@ -1478,9 +1478,10 @@ with pd.option_context("display.max_colwidth", 70):
 # `almanach/camembert-base` (110 M paramètres) est affiné de bout en bout sur les 120 textes bruts du
 # train, avec une tête de classification neuve : 15 époques, lr 3·10⁻⁵ avec 10 % de warmup puis décroissance
 # linéaire, batch 16, `max_length` 64 (les textes font moins de 40 tokens), fp16. Trois graines pour mesurer
-# l'instabilité attendue d'un tel affinage sur si peu de données. ~13 s par graine sur une RTX 2070 ;
-# les poids ne sont pas sauvegardés, seuls les scores sont mis en cache dans `models/camembert_scores.json`
-# (`RUN_CAMEMBERT = True` pour refaire l'entraînement, GPU requis).
+# l'instabilité attendue d'un tel affinage sur si peu de données, puis une validation croisée sur les
+# **5 premiers plis de `cv_train`** (les mêmes que SetFit et que les 5 premiers plis d'e5-base : comparaison appariée).
+# ~13 s par entraînement sur une RTX 2070 ; les poids ne sont pas sauvegardés, seuls les scores sont mis en
+# cache dans `models/camembert_scores.json` (`RUN_CAMEMBERT = True` pour refaire, GPU requis).
 
 # %%
 RUN_CAMEMBERT = False
@@ -1489,8 +1490,8 @@ CAMEMBERT_CACHE = MODELS_DIR / "camembert_scores.json"
 CAMEMBERT_SEEDS = [42, 43, 44]
 
 
-def finetune_camembert(seed, epochs=15, lr=3e-5, batch_size=16, max_length=64):
-    """Boucle d'entraînement minimale (fp16, warmup 10 %) ; les poids ne sont pas sauvegardés."""
+def finetune_camembert(seed, train_texts, train_labels, evaluation_texts, epochs=15, lr=3e-5, batch_size=16, max_length=64):
+    """Affine CamemBERT et renvoie les classes prédites (fp16, warmup 10 %) ; les poids ne sont pas sauvegardés."""
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
     set_seed(seed)
     tokenizer = AutoTokenizer.from_pretrained(CAMEMBERT_CHECKPOINT)
@@ -1500,17 +1501,17 @@ def finetune_camembert(seed, epochs=15, lr=3e-5, batch_size=16, max_length=64):
         return tokenizer(list(batch_texts), padding=True, truncation=True, max_length=max_length,
                          return_tensors="pt").to("cuda")
 
-    train_labels = torch.tensor([CLASS_ORDER.index(label) for label in y_train], device="cuda")
-    n_steps = epochs * -(-len(X_train) // batch_size)
+    label_ids = torch.tensor([CLASS_ORDER.index(label) for label in train_labels], device="cuda")
+    n_steps = epochs * -(-len(train_texts) // batch_size)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * n_steps), n_steps)
     scaler = torch.amp.GradScaler()
     generator = torch.Generator().manual_seed(seed)
     model.train()
     for _ in range(epochs):
-        for rows in torch.randperm(len(X_train), generator=generator).split(batch_size):
+        for rows in torch.randperm(len(train_texts), generator=generator).split(batch_size):
             with torch.autocast("cuda", dtype=torch.float16):
-                loss = model(**encode(X_train.iloc[rows.numpy()]), labels=train_labels[rows.cuda()]).loss
+                loss = model(**encode(train_texts.iloc[rows.numpy()]), labels=label_ids[rows.cuda()]).loss
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -1518,18 +1519,27 @@ def finetune_camembert(seed, epochs=15, lr=3e-5, batch_size=16, max_length=64):
             scheduler.step()
     model.eval()
     with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
-        predictions = np.array(CLASS_ORDER)[model(**encode(X_test)).logits.argmax(dim=1).cpu().numpy()]
+        predictions = np.array(CLASS_ORDER)[model(**encode(evaluation_texts)).logits.argmax(dim=1).cpu().numpy()]
     del model
     gc.collect()
     torch.cuda.empty_cache()
+    return predictions
+
+
+def camembert_test_run(seed):
+    predictions = finetune_camembert(seed, X_train, y_train, X_test)
     return {"seed": seed, "accuracy": accuracy_score(y_test, predictions), "f1_macro": f1_macro(y_test, predictions),
             "erreurs": [f"{text} ({true} → {pred})" for text, true, pred in zip(X_test, y_test, predictions) if true != pred]}
 
 
 if RUN_CAMEMBERT:
     start = time.perf_counter()
-    camembert_runs = [finetune_camembert(seed) for seed in CAMEMBERT_SEEDS]
-    CAMEMBERT_CACHE.write_text(json.dumps({"runs": camembert_runs, "seconds": time.perf_counter() - start}, indent=1))
+    camembert_runs = [camembert_test_run(seed) for seed in CAMEMBERT_SEEDS]
+    camembert_cv_f1 = [f1_macro(y_train.iloc[validation_part],
+                                finetune_camembert(SEED, X_train.iloc[train_part], y_train.iloc[train_part], X_train.iloc[validation_part]))
+                       for train_part, validation_part in islice(cv_train.split(X_train, y_train), 5)]
+    CAMEMBERT_CACHE.write_text(json.dumps({"runs": camembert_runs, "cv_f1": camembert_cv_f1,
+                                           "seconds": time.perf_counter() - start}, indent=1))
 camembert_results = json.loads(CAMEMBERT_CACHE.read_text())
 with pd.option_context("display.max_colwidth", None):
     display(pd.DataFrame(camembert_results["runs"]).set_index("seed"))
@@ -1538,11 +1548,11 @@ with pd.option_context("display.max_colwidth", None):
 camembert_runs = pd.DataFrame(camembert_results["runs"])
 print("Erreurs d'e5-base sur le test :", list(X_test[test_pred[RETAINED_MODEL] != y_test.to_numpy()]))
 pd.DataFrame({
-    **{name: {"F1 macro CV": f"{cv_scores[name].mean():.3f} ± {cv_scores[name].std():.3f}",
+    **{name: {"F1 macro CV (5 mêmes plis)": f"{cv_scores[name].iloc[:5].mean():.3f} ± {cv_scores[name].iloc[:5].std():.3f}",
               "accuracy test": f"{accuracy_score(y_test, test_pred[name]):.3f}",
               "F1 macro test": f"{test_f1[name]:.3f}"} for name in [RETAINED_MODEL, "SetFit"]},
     "CamemBERT affiné (3 graines)": {
-        "F1 macro CV": "non mesuré",
+        "F1 macro CV (5 mêmes plis)": f"{np.mean(camembert_results['cv_f1']):.3f} ± {np.std(camembert_results['cv_f1'], ddof=1):.3f}",
         **{f"{label} test": f"{camembert_runs[column].mean():.3f} ± {camembert_runs[column].std():.3f}"
            for label, column in [("accuracy", "accuracy"), ("F1 macro", "f1_macro")]}},
 }).T
@@ -1556,14 +1566,20 @@ pd.DataFrame({
 # (CamemBERT) : c'est la limite que la section 4.1 montre à plus grande échelle. Conclusion honnête : **sur ce test,
 # CamemBERT affiné égale e5-base figé sans le battre**, pour un coût bien plus élevé (GPU, 110 M paramètres
 # mis à jour, 440 Mo de poids par modèle entraîné contre quelques Ko pour la tête logistique). Le test de
-# 30 textes ne peut pas les départager ; seule une validation croisée (non faite ici, faute de temps) le pourrait.
+# 30 textes ne peut pas les départager : d'où la validation croisée sur les 5 mêmes plis que les autres modèles.
+#
+# **Validation croisée (5 plis appariés).** CamemBERT obtient **0,983 ± 0,037**, e5-base figé **0,983 ± 0,023**,
+# SetFit 0,975 ± 0,023 : égalité. CamemBERT fait 4 plis parfaits et chute à 0,917 sur le cinquième, d'où un écart-type
+# plus large : c'est l'instabilité attendue d'un affinage complet sur 96 textes, invisible sur le test. À score
+# égal, l'encodeur figé l'emporte par son coût (aucun GPU, une tête de quelques Ko).
 
 # %% [markdown]
 # ### 4.3 Conclusion du bonus
 #
 # - **Ce qui marche** : le glossaire additif, même sommaire, améliore les trois modèles sur les textes mixtes
-#   (TF-IDF 8 → 11 sur 15, e5-base 12 → 13) ; un fine-tuning complet de CamemBERT est stable sur 3 graines.
+#   (TF-IDF 8 → 11 sur 15, e5-base 12 → 13) ; CamemBERT affiné atteint le niveau d'e5-base (0,983 en CV sur 5 plis appariés).
 # - **Ce qui ne marche pas** : affiner un encodeur (SetFit, CamemBERT) ne bat pas e5-base figé à 120 textes,
-#   et les textes majoritairement éwé ou à mot polysémique (`hafi`, `mele`) restent mal classés.
+#   et les textes majoritairement éwé ou à mot polysémique (`hafi`, `mele`) restent mal classés ; CamemBERT est
+#   plus variable d'un pli à l'autre (σ = 0,037 contre 0,023).
 # - **Suite** : pistes 3 et 4 de la section 3, un encodeur couvrant l'éwé et un glossaire contextuel validé
 #   par un locuteur, évalués sur un jeu mixte plus grand que 15 textes (piste 1).
