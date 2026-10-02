@@ -1,0 +1,10 @@
+[theme]
+base = "light"
+primaryColor = "#4a3aa7"   # violet neutre : ne se confond avec aucune des trois classes
+# Badges aux couleurs des classes, identiques au notebook et au graphique
+greenColor = "#1baf7a"
+orangeColor = "#eb6834"
+blueColor = "#2a78d6"
+borderColor = "#e3e2de"
+baseRadius = "0.6rem"
+showSidebarBorder = true

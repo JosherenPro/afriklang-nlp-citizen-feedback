@@ -70,50 +70,79 @@ def highlight(contributions, color):
 
 
 st.set_page_config(page_title="Commentaires citoyens", page_icon=":material/forum:")
-st.title(":material/forum: Commentaires citoyens")
-st.markdown("Classe un retour sur un service public en **Satisfaction**, **Insatisfaction** ou **Suggestion** "
-            "— en français, avec ou sans mots d'éwé/mina — et montre les mots qui ont décidé.")
+st.title("Commentaires citoyens", icon=":material/forum:")
+st.markdown("Classe un retour sur un service public en :green-badge[Satisfaction] :orange-badge[Insatisfaction] "
+            ":blue-badge[Suggestion] — en français, avec ou sans mots d'éwé/mina — et montre les mots qui ont décidé.")
 
 with st.sidebar:
     model_name = st.radio("Modèle", ["e5-base", "TF-IDF"],
                           captions=["retenu (F1 CV 0,981)", "repli explicable (F1 CV 0,717)"])
-    st.subheader("À propos")
+    st.subheader("À propos", icon=":material/info:")
     st.caption("Modèle : encodeur multilingual-e5-base figé + régression logistique (F1 macro en CV : 0,981).")
     st.caption("Limites : 150 textes d'entraînement seulement ; l'éwé n'est couvert que par un petit glossaire.")
     st.caption("Explication : baisse de probabilité de la classe prédite quand on retire chaque mot.")
     st.link_button("Notebook et code", REPO, icon=":material/code:", width="stretch")
 
-st.pills("Exemples", EXAMPLES, key="example",
-         on_change=lambda: st.session_state.update(text=st.session_state.example or st.session_state.text))
-text = st.text_area("Commentaire", key="text", placeholder="Écrivez un commentaire…", height=100)
-st.button("Analyser", type="primary", icon=":material/search:")
+single_tab, batch_tab = st.tabs(
+    [":material/chat: Un commentaire", ":material/table_chart: Un fichier CSV"])
 
-if text.strip():
-    with st.spinner("Analyse… (le premier appel charge le modèle, ~20 s)"):
-        label, probs, contributions = analyse(text, model_name)
+with single_tab:
+    st.pills("Exemples", EXAMPLES, key="example",
+             on_change=lambda: st.session_state.update(text=st.session_state.example or st.session_state.text))
+    text = st.text_area("Commentaire", key="text", placeholder="Écrivez un commentaire…", height=100)
+    st.button("Analyser", type="primary", icon=":material/search:")
 
-    with st.container(border=True):
-        color, icon = BADGES[label]
-        verdict, chart = st.columns([2, 3], vertical_alignment="center")
-        verdict.badge(label, icon=icon, color=color)
-        # Pas de « % de confiance » : les probabilités de la régression logistique sur e5 ne sont pas calibrées
-        # (médiane 0,56 même sur les textes d'entraînement) ; seul leur classement est fiable.
-        verdict.caption("Classe la plus probable ; le graphique compare les trois classes.")
-        df = pd.DataFrame({"classe": classes(model_name), "probabilité": probs})
-        chart.altair_chart(alt.Chart(df).mark_bar(cornerRadiusEnd=4).encode(
-            x=alt.X("probabilité", scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format="%")),
-            y=alt.Y("classe", title=None, sort=list(COLORS), axis=alt.Axis(labelOverlap=False)),
-            color=alt.Color("classe", scale=alt.Scale(domain=list(COLORS), range=list(COLORS.values())), legend=None),
-            tooltip=["classe", alt.Tooltip("probabilité", format=".1%")]).properties(height=150))
+    if text.strip():
+        with st.spinner("Analyse… (le premier appel charge le modèle, ~20 s)"):
+            label, probs, contributions = analyse(text, model_name)
 
-    st.subheader("Mots qui ont pesé")
-    st.html(highlight(contributions, COLORS[label]))
-    st.caption(f"Couleur {label.lower()} : le mot pousse vers « {label} » (plus foncé = plus fort). "
-               "Gris : le mot tire vers une autre classe. Survolez un mot pour sa contribution.")
+        with st.container(border=True):
+            color, icon = BADGES[label]
+            verdict, chart = st.columns([2, 3], vertical_alignment="center")
+            verdict.caption("Classe prédite")
+            verdict.badge(label, icon=icon, color=color)
+            # Pas de « % de confiance » : les probabilités de la régression logistique sur e5 ne sont pas calibrées
+            # (médiane 0,56 même sur les textes d'entraînement) ; seul leur classement est fiable.
+            df = pd.DataFrame({"classe": classes(model_name), "probabilité": probs})
+            chart.altair_chart(alt.Chart(df).mark_bar(cornerRadiusEnd=4).encode(
+                x=alt.X("probabilité", scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format="%")),
+                y=alt.Y("classe", title=None, sort=list(COLORS), axis=alt.Axis(labelOverlap=False)),
+                color=alt.Color("classe", scale=alt.Scale(domain=list(COLORS), range=list(COLORS.values())), legend=None),
+                tooltip=["classe", alt.Tooltip("probabilité", format=".1%")]).properties(height=150))
 
-    if glosses := ewe_words(text):
-        st.subheader("Mots éwé détectés")
-        st.dataframe(pd.DataFrame({"éwé / mina": list(glosses), "glose française": list(glosses.values())}),
-                     hide_index=True)
-        if model_name == "e5-base":
-            st.caption("e5 lit le texte brut (comme à l'entraînement) ; le glossaire sert au TF-IDF et à cet affichage.")
+        st.subheader("Mots qui ont pesé", icon=":material/highlight:")
+        st.html(highlight(contributions, COLORS[label]))
+        st.caption(f"Couleur {label.lower()} : le mot pousse vers « {label} » (plus foncé = plus fort). "
+                   "Gris : le mot tire vers une autre classe. Survolez un mot pour sa contribution.")
+
+        if glosses := ewe_words(text):
+            st.subheader("Mots éwé détectés", icon=":material/translate:")
+            st.dataframe(pd.DataFrame({"éwé / mina": list(glosses), "glose française": list(glosses.values())}),
+                         hide_index=True)
+            if model_name == "e5-base":
+                st.caption("e5 lit le texte brut (comme à l'entraînement) ; le glossaire sert au TF-IDF et à cet affichage.")
+
+with batch_tab:
+    # Cas d'usage réel d'une administration : classer d'un coup un export de retours citoyens.
+    uploaded = st.file_uploader("Fichier CSV (une colonne de commentaires)", type="csv")
+    if uploaded is not None:
+        comments = pd.read_csv(uploaded)
+        text_columns = list(comments.select_dtypes("object").columns)
+        if not text_columns:
+            st.error("Aucune colonne de texte dans ce fichier.", icon=":material/error:")
+        else:
+            column = st.selectbox("Colonne à classer", text_columns,
+                                  index=text_columns.index("texte") if "texte" in text_columns else 0)
+            texts = comments[column].fillna("").astype(str)
+            with st.spinner(f"Classement de {len(texts)} commentaires…"):
+                batch_probs = predict_proba(list(texts), model_name)
+            labels = classes(model_name)
+            # Classe prédite juste après le texte, pour qu'elle reste visible sans défilement horizontal
+            comments.insert(comments.columns.get_loc(column) + 1, "classe prédite",
+                            [labels[i] for i in batch_probs.argmax(axis=1)])
+            counts = comments["classe prédite"].value_counts().reindex(list(COLORS), fill_value=0)
+            for metric_column, (name, count) in zip(st.columns(3, border=True), counts.items()):
+                metric_column.metric(name, f"{count} · {count / len(comments):.0%}")
+            st.dataframe(comments, hide_index=True)
+            st.download_button("Télécharger le CSV classé", comments.to_csv(index=False).encode("utf-8"),
+                               "commentaires_classes.csv", "text/csv", icon=":material/download:", type="primary")
