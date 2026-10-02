@@ -1,5 +1,6 @@
 [theme]
 base = "light"
+baseFontSize = 18        # 16 px par défaut : trop petit pour lire les commentaires et les légendes
 primaryColor = "#4a3aa7"   # violet neutre : ne se confond avec aucune des trois classes
 # Badges aux couleurs des classes, identiques au notebook et au graphique
 greenColor = "#1baf7a"

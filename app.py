@@ -114,7 +114,8 @@ with single_tab:
                 x=alt.X("probabilité", scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format="%")),
                 y=alt.Y("classe", title=None, sort=list(COLORS), axis=alt.Axis(labelOverlap=False)),
                 color=alt.Color("classe", scale=alt.Scale(domain=list(COLORS), range=list(COLORS.values())), legend=None),
-                tooltip=["classe", alt.Tooltip("probabilité", format=".1%")]).properties(height=150))
+                tooltip=["classe", alt.Tooltip("probabilité", format=".1%")]).properties(height=150)
+                .configure_axis(labelFontSize=14, titleFontSize=14))
 
         st.subheader("Mots qui ont pesé", icon=":material/highlight:")
         st.html(highlight(contributions, COLORS[label]))
