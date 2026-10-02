@@ -18,6 +18,7 @@ BADGES = {"Satisfaction": ("green", ":material/sentiment_satisfied:"),
 EXAMPLES = ["Mele via o, service la mègbe trop!", "Akpe na wò, service très professionnel",
             "Le personnel a été accueillant et efficace.", "Trois semaines d'attente pour un simple certificat.",
             "Créer une application mobile pour les démarches"]
+REPO = "https://github.com/JosherenPro/afriklang-nlp-citizen-feedback"
 MAX_WORDS = 80  # ponytail: occlusion = 1 encodage par mot ; au-delà, on tronque l'explication
 
 
@@ -69,8 +70,9 @@ def highlight(contributions, color):
 
 
 st.set_page_config(page_title="Commentaires citoyens", page_icon=":material/forum:")
-st.title("Classification de commentaires citoyens")
-st.caption("Satisfaction, insatisfaction ou suggestion — français, avec quelques mots d'éwé.")
+st.title(":material/forum: Commentaires citoyens")
+st.markdown("Classe un retour sur un service public en **Satisfaction**, **Insatisfaction** ou **Suggestion** "
+            "— en français, avec ou sans mots d'éwé/mina — et montre les mots qui ont décidé.")
 
 with st.sidebar:
     model_name = st.radio("Modèle", ["e5-base", "TF-IDF"],
@@ -79,6 +81,7 @@ with st.sidebar:
     st.caption("Modèle : encodeur multilingual-e5-base figé + régression logistique (F1 macro en CV : 0,981).")
     st.caption("Limites : 150 textes d'entraînement seulement ; l'éwé n'est couvert que par un petit glossaire.")
     st.caption("Explication : baisse de probabilité de la classe prédite quand on retire chaque mot.")
+    st.link_button("Notebook et code", REPO, icon=":material/code:", width="stretch")
 
 st.pills("Exemples", EXAMPLES, key="example",
          on_change=lambda: st.session_state.update(text=st.session_state.example or st.session_state.text))
@@ -86,14 +89,18 @@ text = st.text_area("Commentaire", key="text", placeholder="Écrivez un commenta
 st.button("Analyser", type="primary", icon=":material/search:")
 
 if text.strip():
-    with st.spinner("Analyse…"):
+    with st.spinner("Analyse… (le premier appel charge le modèle, ~20 s)"):
         label, probs, contributions = analyse(text, model_name)
 
     with st.container(border=True):
         color, icon = BADGES[label]
-        st.badge(label, icon=icon, color=color)
+        verdict, chart = st.columns([2, 3], vertical_alignment="center")
+        verdict.badge(label, icon=icon, color=color)
+        # Pas de « % de confiance » : les probabilités de la régression logistique sur e5 ne sont pas calibrées
+        # (médiane 0,56 même sur les textes d'entraînement) ; seul leur classement est fiable.
+        verdict.caption("Classe la plus probable ; le graphique compare les trois classes.")
         df = pd.DataFrame({"classe": classes(model_name), "probabilité": probs})
-        st.altair_chart(alt.Chart(df).mark_bar().encode(
+        chart.altair_chart(alt.Chart(df).mark_bar(cornerRadiusEnd=4).encode(
             x=alt.X("probabilité", scale=alt.Scale(domain=[0, 1]), axis=alt.Axis(format="%")),
             y=alt.Y("classe", title=None, sort=list(COLORS), axis=alt.Axis(labelOverlap=False)),
             color=alt.Color("classe", scale=alt.Scale(domain=list(COLORS), range=list(COLORS.values())), legend=None),
@@ -106,6 +113,7 @@ if text.strip():
 
     if glosses := ewe_words(text):
         st.subheader("Mots éwé détectés")
-        st.markdown("\n".join(f"- **{w}** → {g}" for w, g in glosses.items()))
+        st.dataframe(pd.DataFrame({"éwé / mina": list(glosses), "glose française": list(glosses.values())}),
+                     hide_index=True)
         if model_name == "e5-base":
             st.caption("e5 lit le texte brut (comme à l'entraînement) ; le glossaire sert au TF-IDF et à cet affichage.")
