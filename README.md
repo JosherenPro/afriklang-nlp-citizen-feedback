@@ -1,7 +1,7 @@
 # Classification de commentaires citoyens (TAISS 2026 × Afriklang)
 
 Satisfaction / Insatisfaction / Suggestion sur 150 commentaires français, dont 3 avec de l'éwé.
-Application : **À COMPLÉTER**
+Application en ligne : **https://afriklang-nlp-citizen.streamlit.app/**
 
 **Approche.** Le nettoyage (minuscules, élisions restituées, accents et lettres éwé conservés, glossaire éwé additif : `akpe` devient `akpe merci`) est dans `preprocessing.py`. Les stopwords NLTK sont amputés de `ne`, `pas` et du conditionnel (`serait`…), qui portent les classes Insatisfaction et Suggestion.
 **Choix, chiffrés.** Le split 80/20 stratifié (`random_state=42`) ne laisse que 30 textes de test, soit 3,3 points par erreur : les modèles sont donc choisis par validation croisée 5 plis × 10 répétitions sur le train, et comparés par test de McNemar.
