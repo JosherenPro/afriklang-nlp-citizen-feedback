@@ -72,10 +72,12 @@ def glossary_key(token):
 EWE_LOOKUP = {glossary_key(key): gloss for key, gloss in EWE_GLOSSARY.items()}
 
 
-def clean_text(text):
+def clean_text(text, use_glossary=True):
     text = unicodedata.normalize("NFC", text).lower()
     text = _ELISION_RE.sub(lambda match: _ELISIONS[match.group(1)] + " ", text)
     text = _NON_LETTER_RE.sub(" ", text)
+    if not use_glossary:  # variante de comparaison (notebook, section 4.1)
+        return " ".join(text.split())
     # Glossaire additif : le token éwé reste, sa glose française est ajoutée derrière.
     words = [f"{word} {EWE_LOOKUP[glossary_key(word)]}" if glossary_key(word) in EWE_LOOKUP else word
              for word in text.split()]
@@ -96,8 +98,8 @@ KEPT_FROM_NLTK = {"ne", "pas", "n",
 STOPWORDS_FR = NLTK_STOPWORDS_FR - KEPT_FROM_NLTK
 
 
-def tokenize(text, stop_words=STOPWORDS_FR):
-    return [word for word in clean_text(text).split() if word not in stop_words and len(word) > 1]
+def tokenize(text, stop_words=STOPWORDS_FR, use_glossary=True):
+    return [word for word in clean_text(text, use_glossary).split() if word not in stop_words and len(word) > 1]
 
 
 if __name__ == "__main__":
@@ -107,4 +109,5 @@ if __name__ == "__main__":
     assert clean_text("Je n'ai reçu qu’un accusé, 3 fois.") == "je ne ai reçu que un accusé fois"
     assert tokenize("Il serait bien de ne pas attendre.") == ["serait", "bien", "ne", "pas", "attendre"]
     assert "très" in tokenize("Très satisfait")
+    assert clean_text("Akpe na wò", use_glossary=False) == "akpe na wò"
     print("preprocessing.py : tous les tests passent")

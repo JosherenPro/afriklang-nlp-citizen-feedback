@@ -1,0 +1,29 @@
+{
+ "runs": [
+  {
+   "seed": 42,
+   "accuracy": 0.9666666666666667,
+   "f1_macro": 0.9665831244778613,
+   "erreurs": [
+    "Y\u00e8vu service la nyuie hafi! (Satisfaction \u2192 Insatisfaction)"
+   ]
+  },
+  {
+   "seed": 43,
+   "accuracy": 0.9666666666666667,
+   "f1_macro": 0.9665831244778613,
+   "erreurs": [
+    "Y\u00e8vu service la nyuie hafi! (Satisfaction \u2192 Insatisfaction)"
+   ]
+  },
+  {
+   "seed": 44,
+   "accuracy": 0.9666666666666667,
+   "f1_macro": 0.9665831244778613,
+   "erreurs": [
+    "Y\u00e8vu service la nyuie hafi! (Satisfaction \u2192 Insatisfaction)"
+   ]
+  }
+ ],
+ "seconds": 39.31905281500076
+}

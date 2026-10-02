@@ -1368,4 +1368,202 @@ plt.show()
 # %% [markdown]
 # ## 4. Bonus
 #
-# À compléter.
+# ### 4.1 Commentaires mixtes français / éwé-mina
+#
+# Les 150 textes ne contiennent que 3 insertions éwé : impossible d'y mesurer l'effet du glossaire.
+# `test_mixte_fr_ewe.csv` ajoute **15 textes mixtes** (5 par classe), rédigés pour ce test et relus par un
+# locuteur éwé. La colonne `note` indique si le mot éwé porteur du sens est dans le glossaire
+# (`glossaire`, 7 textes) ou non (`hors_glossaire:<mot>`, 8 textes), suivie de la traduction.
+#
+# On compare chaque modèle final (entraîné sur les 120 textes du train) **sans** et **avec** glossaire :
+#
+# - **TF-IDF + LogReg** : le même pipeline ré-entraîné avec `clean_text(..., use_glossary=False)` ;
+# - **e5-base figé et SetFit**, qui lisent le texte brut : la variante « avec » ajoute en fin de texte,
+#   entre parenthèses, les gloses françaises des mots reconnus (« Lala geɖe, nublanui. (attendre attente,
+#   beaucoup, dommage triste) »). Le texte original reste intact, comme dans le glossaire additif de
+#   `clean_text`, et la tête de classification n'est pas ré-entraînée : seule l'entrée change. SetFit est
+#   relu dans `models/setfit/` (pas de ré-entraînement) s'il est présent.
+
+# %%
+def with_glosses(text):
+    glosses = [EWE_LOOKUP[glossary_key(word)] for word in clean_text(text, use_glossary=False).split()
+               if glossary_key(word) in EWE_LOOKUP]
+    return f"{text} ({', '.join(glosses)})" if glosses else text
+
+
+mixed = pd.read_csv("test_mixte_fr_ewe.csv")
+mixed["groupe"] = np.where(mixed["note"].str.startswith("hors_glossaire"), "hors_glossaire", "glossaire")
+glossed = mixed["texte"].map(with_glosses)
+
+tfidf_no_glossary = clone(final_models[FALLBACK_MODEL]).set_params(
+    features__mots__tokenizer=partial(tokenize, stop_words=frozenset(), use_glossary=False),
+    features__caracteres__preprocessor=partial(clean_text, use_glossary=False)).fit(X_train, y_train)
+mixed_pred = {
+    ("TF-IDF + LogReg", "sans"): tfidf_no_glossary.predict(mixed["texte"]),
+    ("TF-IDF + LogReg", "avec"): final_models[FALLBACK_MODEL].predict(mixed["texte"]),
+    ("e5-base figé + LogReg", "sans"): final_models[RETAINED_MODEL].predict(mixed["texte"]),
+    ("e5-base figé + LogReg", "avec"): final_models[RETAINED_MODEL].predict(glossed),
+}
+if (MODELS_DIR / "setfit" / "model_head.pkl").exists():  # dossier gitignoré : absent d'un clone neuf
+    setfit_model = SetFitModel.from_pretrained(str(MODELS_DIR / "setfit"))
+    mixed_pred[("SetFit", "sans")] = most_probable(setfit_proba(setfit_model, mixed["texte"]))
+    mixed_pred[("SetFit", "avec")] = most_probable(setfit_proba(setfit_model, glossed))
+
+
+def mixed_scores(pred):
+    correct = pred == mixed["categorie"].to_numpy()
+    return {"accuracy": accuracy_score(mixed["categorie"], pred), "F1 macro": f1_macro(mixed["categorie"], pred),
+            **{f"justes {group}": f"{correct[mixed['groupe'] == group].sum()}/{(mixed['groupe'] == group).sum()}"
+               for group in ["glossaire", "hors_glossaire"]}}
+
+
+mixed_table = pd.DataFrame({key: mixed_scores(pred) for key, pred in mixed_pred.items()}).T
+mixed_table.index.names = ["modèle", "glossaire"]
+display(mixed_table.style.format({"accuracy": "{:.3f}", "F1 macro": "{:.3f}"}))
+
+# %%
+mixed_models = list(dict.fromkeys(model for model, _ in mixed_pred))
+fig, ax = plt.subplots(figsize=(8, 4))
+for offset, (variant, color) in zip([-0.2, 0.2], [("sans", "#b5b4ae"), ("avec", FAMILY_COLORS["dense figée"])]):
+    n_correct = [int((mixed_pred[(model, variant)] == mixed["categorie"].to_numpy()).sum()) for model in mixed_models]
+    bars = ax.bar(np.arange(len(mixed_models)) + offset, n_correct, width=0.4, color=color,
+                  label=f"{variant} glossaire")
+    ax.bar_label(bars, [f"{n}/15" for n in n_correct], fontsize=9)
+ax.set_xticks(range(len(mixed_models)), mixed_models)
+ax.set(ylabel="Textes bien classés (sur 15)", ylim=(0, 16.5))
+ax.grid(axis="x", visible=False)
+ax.legend(frameon=False, loc="upper left")
+ax.set_title("Le glossaire ajoute 1 à 3 bonnes réponses sur 15 à chaque modèle ;\n"
+             "e5-base reste devant (13/15), le TF-IDF en a le plus besoin (8 → 11)", loc="left")
+fig.savefig(FIGURES_DIR / "test_mixte_ewe.png")
+plt.show()
+
+# %%
+with pd.option_context("display.max_colwidth", 70):
+    display(mixed[["texte", "categorie", "groupe"]].assign(
+        **{f"{model.split()[0]} {variant}": np.where(pred == mixed["categorie"].to_numpy(), "·", pred)
+           for (model, variant), pred in mixed_pred.items()}))
+
+# %% [markdown]
+# **Lecture** (« · » = prédiction juste). Avec 15 textes, **une erreur vaut 6,7 points** d'accuracy :
+# les écarts sont des tendances, pas des résultats établis.
+#
+# - **Le glossaire aide les trois modèles, et d'abord le TF-IDF** : 8 → 11 textes justes (accuracy
+#   0,53 → 0,73), SetFit 9 → 11, e5-base 12 → 13. Sans glossaire, un mot éwé est un n-gramme jamais
+#   vu en entraînement : le sac de mots n'a plus que le français pour décider. e5 s'en sort mieux
+#   car la partie française (« trois jours sans courant », « mettez des bancs ») suffit souvent.
+# - **Le gain ne se limite pas aux textes `glossaire`** (4 → 5 sur 8 `hors_glossaire` pour le TF-IDF et
+#   SetFit) : ces textes contiennent souvent aussi un mot connu (`ga`, `agbalẽ`, `nublanui`), mais ce n'est pas le mot qui porte la polarité ;
+#   ils restent les moins bien classés.
+# - **Exemple où le glossaire corrige** : « Accueil à la mairie de Bè, enyo ŋutɔ. Akpe kakaka aux
+#   agents. » Sans glossaire, le TF-IDF y voit une Suggestion et SetFit une Insatisfaction ; avec
+#   « bon, très, merci, beaucoup », les deux passent à Satisfaction.
+# - **Exemple où il corrige e5** : « Il faudrait plus de dɔwɔla au guichet pour réduire la lala. »
+#   e5 sans glossaire lit une Insatisfaction (l'attente au guichet) ; avec « agent, attente », la forme
+#   « il faudrait plus de … pour … » l'emporte et le texte devient une Suggestion.
+# - **Exemple où le glossaire induit en erreur** : « Ne wotsɔ SMS yɔ mí hafi míava mairie la, anyo. »
+#   (« si on nous prévenait par SMS avant de venir, ce serait bien », Suggestion). `hafi` est glosé
+#   « vraiment » au lieu de « avant » et le conditionnel éwé (`ne … anyo`) n'est pas reconnu : e5 passe
+#   de Satisfaction (déjà faux) à Insatisfaction, et aucun modèle ne trouve la Suggestion.
+#   De même `mele` est glosé « ne pas » dans « Mele kɔdzi la… » où il signifie « je suis » ; la
+#   prédiction (Insatisfaction) est juste, mais par chance : la glose ajoute une négation qui n'existe pas.
+#   Le pluriel `dɔwɔlawo` (agents) n'est jamais reconnu, faute de lemmatisation du suffixe `-wo`.
+#
+# Le glossaire est donc utile dès qu'un mot de polarité est couvert, et dangereux quand un mot
+# polysémique y a une seule glose : c'est la piste 4 de la section 3 (gloses selon le contexte, `-wo`).
+
+# %% [markdown]
+# ### 4.2 Fine-tuning complet de CamemBERT
+#
+# `almanach/camembert-base` (110 M paramètres) est affiné de bout en bout sur les 120 textes bruts du
+# train, avec une tête de classification neuve : 15 époques, lr 3·10⁻⁵ avec 10 % de warmup puis décroissance
+# linéaire, batch 16, `max_length` 64 (les textes font moins de 40 tokens), fp16. Trois graines pour mesurer
+# l'instabilité attendue d'un tel affinage sur si peu de données. ~13 s par graine sur une RTX 2070 ;
+# les poids ne sont pas sauvegardés, seuls les scores sont mis en cache dans `models/camembert_scores.json`
+# (`RUN_CAMEMBERT = True` pour refaire l'entraînement, GPU requis).
+
+# %%
+RUN_CAMEMBERT = False
+CAMEMBERT_CHECKPOINT = "almanach/camembert-base"
+CAMEMBERT_CACHE = MODELS_DIR / "camembert_scores.json"
+CAMEMBERT_SEEDS = [42, 43, 44]
+
+
+def finetune_camembert(seed, epochs=15, lr=3e-5, batch_size=16, max_length=64):
+    """Boucle d'entraînement minimale (fp16, warmup 10 %) ; les poids ne sont pas sauvegardés."""
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
+    set_seed(seed)
+    tokenizer = AutoTokenizer.from_pretrained(CAMEMBERT_CHECKPOINT)
+    model = AutoModelForSequenceClassification.from_pretrained(CAMEMBERT_CHECKPOINT, num_labels=len(CLASS_ORDER)).cuda()
+
+    def encode(batch_texts):
+        return tokenizer(list(batch_texts), padding=True, truncation=True, max_length=max_length,
+                         return_tensors="pt").to("cuda")
+
+    train_labels = torch.tensor([CLASS_ORDER.index(label) for label in y_train], device="cuda")
+    n_steps = epochs * -(-len(X_train) // batch_size)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * n_steps), n_steps)
+    scaler = torch.amp.GradScaler()
+    generator = torch.Generator().manual_seed(seed)
+    model.train()
+    for _ in range(epochs):
+        for rows in torch.randperm(len(X_train), generator=generator).split(batch_size):
+            with torch.autocast("cuda", dtype=torch.float16):
+                loss = model(**encode(X_train.iloc[rows.numpy()]), labels=train_labels[rows.cuda()]).loss
+            optimizer.zero_grad()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+    model.eval()
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+        predictions = np.array(CLASS_ORDER)[model(**encode(X_test)).logits.argmax(dim=1).cpu().numpy()]
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+    return {"seed": seed, "accuracy": accuracy_score(y_test, predictions), "f1_macro": f1_macro(y_test, predictions),
+            "erreurs": [f"{text} ({true} → {pred})" for text, true, pred in zip(X_test, y_test, predictions) if true != pred]}
+
+
+if RUN_CAMEMBERT:
+    start = time.perf_counter()
+    camembert_runs = [finetune_camembert(seed) for seed in CAMEMBERT_SEEDS]
+    CAMEMBERT_CACHE.write_text(json.dumps({"runs": camembert_runs, "seconds": time.perf_counter() - start}, indent=1))
+camembert_results = json.loads(CAMEMBERT_CACHE.read_text())
+with pd.option_context("display.max_colwidth", None):
+    display(pd.DataFrame(camembert_results["runs"]).set_index("seed"))
+
+# %%
+camembert_runs = pd.DataFrame(camembert_results["runs"])
+print("Erreurs d'e5-base sur le test :", list(X_test[test_pred[RETAINED_MODEL] != y_test.to_numpy()]))
+pd.DataFrame({
+    **{name: {"F1 macro CV": f"{cv_scores[name].mean():.3f} ± {cv_scores[name].std():.3f}",
+              "accuracy test": f"{accuracy_score(y_test, test_pred[name]):.3f}",
+              "F1 macro test": f"{test_f1[name]:.3f}"} for name in [RETAINED_MODEL, "SetFit"]},
+    "CamemBERT affiné (3 graines)": {
+        "F1 macro CV": "non mesuré",
+        **{f"{label} test": f"{camembert_runs[column].mean():.3f} ± {camembert_runs[column].std():.3f}"
+           for label, column in [("accuracy", "accuracy"), ("F1 macro", "f1_macro")]}},
+}).T
+
+# %% [markdown]
+# **Lecture.** L'instabilité attendue **n'apparaît pas** : les trois graines donnent exactement le même
+# résultat, 0,967 d'accuracy et de F1 macro sur le test (σ = 0), soit 1 erreur sur 30, comme e5-base figé.
+# Mais pas sur le même texte : e5-base manque l'id 50 (« Je n'ai reçu aucun accusé… », la négation noyée
+# de 2.4), CamemBERT l'id 73 « Yèvu service la nyuie hafi! » (Satisfaction lue comme Insatisfaction).
+# Entièrement en éwé, ce texte est hors du vocabulaire d'un modèle pré-entraîné sur du français seul
+# (CamemBERT) : c'est la limite que la section 4.1 montre à plus grande échelle. Conclusion honnête : **sur ce test,
+# CamemBERT affiné égale e5-base figé sans le battre**, pour un coût bien plus élevé (GPU, 110 M paramètres
+# mis à jour, 440 Mo de poids par modèle entraîné contre quelques Ko pour la tête logistique). Le test de
+# 30 textes ne peut pas les départager ; seule une validation croisée (non faite ici, faute de temps) le pourrait.
+
+# %% [markdown]
+# ### 4.3 Conclusion du bonus
+#
+# - **Ce qui marche** : le glossaire additif, même sommaire, améliore les trois modèles sur les textes mixtes
+#   (TF-IDF 8 → 11 sur 15, e5-base 12 → 13) ; un fine-tuning complet de CamemBERT est stable sur 3 graines.
+# - **Ce qui ne marche pas** : affiner un encodeur (SetFit, CamemBERT) ne bat pas e5-base figé à 120 textes,
+#   et les textes majoritairement éwé ou à mot polysémique (`hafi`, `mele`) restent mal classés.
+# - **Suite** : pistes 3 et 4 de la section 3, un encodeur couvrant l'éwé et un glossaire contextuel validé
+#   par un locuteur, évalués sur un jeu mixte plus grand que 15 textes (piste 1).
