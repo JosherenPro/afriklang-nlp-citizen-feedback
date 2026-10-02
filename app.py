@@ -75,9 +75,14 @@ st.title("Commentaires citoyens", icon=":material/forum:")
 st.markdown("Classe un retour sur un service public en :green-badge[Satisfaction] :orange-badge[Insatisfaction] "
             ":blue-badge[Suggestion] — en français, avec ou sans mots d'éwé/mina — et montre les mots qui ont décidé.")
 
+with st.container(border=True):
+    model_name = st.radio(
+        ":material/model_training: **Modèle de classification**", ["e5-base", "TF-IDF"], horizontal=True,
+        format_func={"e5-base": "**e5-base** :violet-badge[retenu]", "TF-IDF": "**TF-IDF** :gray-badge[repli]"}.get,
+        captions=["Encodeur multilingue figé · F1 macro CV **0,981**",
+                  "Sac de mots, explicable mot à mot · F1 macro CV **0,717**"])
+
 with st.sidebar:
-    model_name = st.radio("Modèle", ["e5-base", "TF-IDF"],
-                          captions=["retenu (F1 CV 0,981)", "repli explicable (F1 CV 0,717)"])
     st.subheader("À propos", icon=":material/info:")
     st.caption("Modèle : encodeur multilingual-e5-base figé + régression logistique (F1 macro en CV : 0,981).")
     st.caption("Limites : 150 textes d'entraînement seulement ; l'éwé n'est couvert que par un petit glossaire.")
