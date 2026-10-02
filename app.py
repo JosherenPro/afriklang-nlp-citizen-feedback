@@ -11,6 +11,7 @@ import streamlit as st
 from preprocessing import EWE_LOOKUP, glossary_key
 
 MODELS = Path(__file__).parent / "models"
+DEMO_CSV = Path(__file__).parent / "test_mixte_fr_ewe.csv"
 COLORS = {"Satisfaction": "#1baf7a", "Insatisfaction": "#eb6834", "Suggestion": "#2a78d6"}
 BADGES = {"Satisfaction": ("green", ":material/sentiment_satisfied:"),
           "Insatisfaction": ("orange", ":material/sentiment_dissatisfied:"),
@@ -125,9 +126,11 @@ with single_tab:
 with batch_tab:
     # Cas d'usage réel d'une administration : classer d'un coup un export de retours citoyens.
     uploaded = st.file_uploader("Fichier CSV (une colonne de commentaires)", type="csv")
-    if uploaded is not None:
-        comments = pd.read_csv(uploaded)
-        text_columns = list(comments.select_dtypes("object").columns)
+    use_demo = st.toggle("Essayer avec le jeu de test mixte français/éwé (15 textes relus par un locuteur)",
+                         value=uploaded is None)
+    if uploaded is not None or use_demo:
+        comments = pd.read_csv(uploaded if uploaded is not None else DEMO_CSV)
+        text_columns = list(comments.select_dtypes(include=["object", "str"]).columns)
         if not text_columns:
             st.error("Aucune colonne de texte dans ce fichier.", icon=":material/error:")
         else:
@@ -141,8 +144,18 @@ with batch_tab:
             comments.insert(comments.columns.get_loc(column) + 1, "classe prédite",
                             [labels[i] for i in batch_probs.argmax(axis=1)])
             counts = comments["classe prédite"].value_counts().reindex(list(COLORS), fill_value=0)
-            for metric_column, (name, count) in zip(st.columns(3, border=True), counts.items()):
+            # Une colonne dont toutes les valeurs sont des classes connues sert de vérité terrain : on évalue.
+            label_columns = [c for c in comments.columns if c != "classe prédite"
+                             and comments[c].dropna().isin(list(COLORS)).all() and comments[c].notna().any()]
+            metric_columns = st.columns(4 if label_columns else 3, border=True)
+            for metric_column, (name, count) in zip(metric_columns, counts.items()):
                 metric_column.metric(name, f"{count} · {count / len(comments):.0%}")
-            st.dataframe(comments, hide_index=True)
+            if label_columns:
+                correct = comments["classe prédite"] == comments[label_columns[0]]
+                comments.insert(comments.columns.get_loc("classe prédite") + 1, "juste", correct)
+                metric_columns[3].metric("Justes", f"{correct.sum()}/{len(correct)}",
+                                         help=f"Comparaison avec la colonne « {label_columns[0]} » du fichier.")
+            st.dataframe(comments, hide_index=True,
+                         column_config={"juste": st.column_config.CheckboxColumn("juste", width="small")})
             st.download_button("Télécharger le CSV classé", comments.to_csv(index=False).encode("utf-8"),
                                "commentaires_classes.csv", "text/csv", icon=":material/download:", type="primary")
